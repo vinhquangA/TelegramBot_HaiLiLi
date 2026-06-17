@@ -1,6 +1,8 @@
 import { Telegraf } from 'telegraf';
 import OpenAI from 'openai';
 import 'dotenv/config';
+import http from 'http';
+http.createServer((_, res) => res.end('Bot is alive!')).listen(process.env.PORT || 3000);
 
 // ============================================================
 // 🤖 AI Chatbot: Lê Minh Hải - Telegram Bot
