@@ -284,6 +284,16 @@ bot.on('text', async (ctx) => {
     const userId = ctx.from.id;
     const userName = ctx.from.first_name || ctx.from.username || 'Thằng vô danh';
 
+const chatType = ctx.chat.type;
+    if (chatType === 'group' || chatType === 'supergroup') {
+        const botUsername = ctx.botInfo.username;
+        const isReplyToBot = ctx.message.reply_to_message?.from?.username === botUsername;
+        const isMentioned = userPrompt.includes(`@${botUsername}`);
+
+        // Bỏ qua nếu không tag tên bot và cũng không reply tin nhắn của bot
+        if (!isReplyToBot && !isMentioned) return; 
+    }
+
     // Kiểm tra xem user có phải là "Quang" không
     const isUserQuang = normalizeText(userName).includes('quang');
 
