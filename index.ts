@@ -331,7 +331,7 @@ async function enqueueMessage(userId: number, task: () => Promise<void>): Promis
 bot.catch((err) => console.error('[Lỗi Hệ Thống]:', err));
 
 bot.start((ctx) => {
-    ctx.reply(`Hello mấy con vợ, Tao là Hải lì đây🖕`);
+    ctx.reply(`Hello mấy con vợ lại là anh, Hải lì đây🖕`);
 });
 
 bot.help((ctx) => {
