@@ -414,57 +414,73 @@ bot.start((ctx) => {
         ctx.reply(
             `Em chào anh Quang ạ! 🙇‍♂️\n` +
             `Em là Hải lì — sẵn sàng hỗ trợ anh bất cứ lúc nào ạ!\n\n` +
-            `/help — xem danh sách lệnh\n` +
-            `/memory — xem ký ức em đang nhớ về anh\n` +
-            `/clear — đặt lại cuộc trò chuyện`
+            `👑 Lệnh quản trị của anh Quang:\n` +
+            `/clear — Đặt lại cuộc trò chuyện & xóa bộ nhớ\n` +
+            `/memory — Xem trạng thái bộ nhớ AI\n` +
+            `/help — Xem danh sách tính năng`
         );
         return;
     }
     ctx.reply(
         `Ê mày. Tao là Hải — Hải lì. Thằng bot mất dạy nhất Telegram.\n` +
-        `Mày muốn gì thì sủa đi, tao nghe. Nhưng sủa ngu thì tao chửi. Hiểu chưa?\n\n` +
-        `/help — xem tao làm được gì (nếu mày đủ thông minh để đọc).`
+        `Mày muốn gì thì sủa đi, tao nghe. Nhưng hỏi ngu thì tao chửi. Hiểu chưa?\n\n` +
+        `Cứ nhắn tin trực tiếp hoặc tag @HaiLiLi_bot trong nhóm là tao trả lời.`
     );
 });
 
 bot.help((ctx) => {
+    const isUserQuang = QUANG_USER_IDS.has(ctx.from.id);
+    if (isUserQuang) {
+        ctx.reply(
+            `Dạ thưa anh Quang, đây là các tính năng và lệnh của em ạ:\n\n` +
+            `💬 Trò chuyện & Giải đáp thắc mắc (Code, toán học, công nghệ, đời sống...)\n` +
+            `🧠 Ghi nhớ ngữ cảnh trò chuyện thông minh\n\n` +
+            `👑 Lệnh quản trị dành riêng cho anh Quang:\n` +
+            `/clear — Xóa sạch lịch sử và đặt lại hội thoại\n` +
+            `/memory — Kiểm tra dung lượng bộ nhớ đang lưu trữ`
+        );
+        return;
+    }
     ctx.reply(
-        `Tao làm được mấy thứ (nếu mày xứng đáng nhận):\n\n` +
-        `💬 Trò chuyện — sủa gì nghe nấy, ngu thì tao chửi\n` +
-        `🧠 Kiến thức — toán, code, khoa học, whatever. Tao biết hết.\n` +
-        `🗣️ Tâm sự — sủa đi, tao nghe rồi phán. Đừng mong tao thương.\n` +
-        `🤔 Tranh luận — mày sai thì tao chửi, mày đúng thì tao khen (hiếm).\n\n` +
-        `Lệnh:\n` +
-        `/clear — xóa ký ức, bắt đầu lại từ đầu\n` +
-        `/memory — xem tao đang nhớ gì về mày\n\n` +
-        `Sủa thẳng. Đừng vòng vo. Tao éo kiên nhẫn đâu.`
+        `Tao làm được mấy thứ này (nếu mày xứng đáng):\n\n` +
+        `💬 Trò chuyện — hỏi gì đáp nấy, ngu thì tao chửi\n` +
+        `🧠 Kiến thức — code, toán, khoa học, công nghệ. Tao biết hết.\n` +
+        `🤔 Tranh luận — mày sai tao chửi, mày đúng tao khen.\n\n` +
+        `Cứ nhắn thẳng vào vấn đề. Đừng có vòng vo.`
     );
 });
 
-// Xóa lịch sử chat
+// Xóa lịch sử chat (Chỉ dành riêng cho Anh Quang)
 bot.command('clear', (ctx) => {
     const userId = ctx.from.id;
-    chatHistories.delete(userId);
-    ctx.reply('Xong. Xóa cmn hết rồi. Bắt đầu lại từ đầu. Lần này sủa cho tử tế vào. 🧠');
-});
-
-// Xem trạng thái bộ nhớ
-bot.command('memory', (ctx) => {
-    const userId = ctx.from.id;
-    const history = chatHistories.get(userId);
-    if (!history) {
-        ctx.reply('Mày éo có gì đáng nhớ cả. Sủa đi rồi tao xem mày có gì đáng nhớ không.');
+    if (!QUANG_USER_IDS.has(userId)) {
+        ctx.reply('Mày tuổi gì mà đòi xóa ký ức của tao? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
         return;
     }
-    const hasSummary = history.summary ? '✅ Có' : '❌ Chưa';
+    chatHistories.delete(userId);
+    ctx.reply('Dạ em đã xóa sạch toàn bộ lịch sử trò chuyện và đặt lại bộ nhớ theo lệnh của anh Quang rồi ạ! 🧠✨');
+});
+
+// Xem trạng thái bộ nhớ (Chỉ dành riêng cho Anh Quang)
+bot.command('memory', (ctx) => {
+    const userId = ctx.from.id;
+    if (!QUANG_USER_IDS.has(userId)) {
+        ctx.reply('Mày tò mò cái gì? Bộ nhớ của tao mày éo có quyền xem đâu nhé! 🚫');
+        return;
+    }
+    const history = chatHistories.get(userId);
+    if (!history) {
+        ctx.reply('Dạ hiện tại em chưa có dữ liệu bộ nhớ lưu trữ nào về cuộc trò chuyện của anh Quang ạ.');
+        return;
+    }
+    const hasSummary = history.summary ? '✅ Đã nén tóm tắt' : '❌ Chưa nén';
     const lastActiveStr = new Date(history.lastActive).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
     ctx.reply(
-        `📊 Tao đang nhớ về mày (nếu có gì đáng nhớ):\n\n` +
-        `- Tin đang giữ: ${history.messages.length} / ${MAX_HISTORY_MESSAGES}\n` +
-        `- Ký ức tóm tắt: ${hasSummary}\n` +
-        `- Tổng tin đã nhắn: ${history.totalMessageCount}\n` +
-        `- Lần cuối chat: ${lastActiveStr}\n\n` +
-        `Vượt ${SUMMARIZE_THRESHOLD} tin thì tao nén lại. Tao éo quên đâu, chỉ là éo muốn tốn bộ nhớ cho mày thôi.`
+        `📊 Báo cáo bộ nhớ của anh Quang:\n\n` +
+        `- Số tin nhắn hiện tại: ${history.messages.length} / ${MAX_HISTORY_MESSAGES}\n` +
+        `- Trạng thái tóm tắt: ${hasSummary}\n` +
+        `- Tổng số tin nhắn: ${history.totalMessageCount}\n` +
+        `- Hoạt động gần nhất: ${lastActiveStr}`
     );
 });
 
