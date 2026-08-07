@@ -6,22 +6,22 @@ const client = new OpenAI({
     baseURL: 'https://api.groq.com/openai/v1',
 });
 
+const MODELS = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'deepseek-r1-distill-llama-70b',
+    'llama-3.2-3b-preview',
+    'llama-3.2-1b-preview',
+];
+
 async function test() {
-    console.log('=== Test Groq API ===');
+    console.log('=== Listing active Groq models ===');
     try {
-        const r = await client.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-                { role: 'system', content: 'Bạn là Hải, chàng trai Việt Nam sinh 2003. Nói chuyện thân thiện kiểu bạn bè Gen Z. Xưng tao gọi mày. Dùng emoji.' },
-                { role: 'user', content: 'Xin chào' },
-            ],
-            max_tokens: 200,
-        });
-        console.log('✅ SUCCESS:', r.choices[0]?.message?.content);
-        console.log('Model:', r.model);
-    } catch (e: unknown) {
-        const err = e as { status?: number; code?: string; message?: string };
-        console.error(`❌ FAIL: [${err.status}] [${err.code}] ${err.message}`);
+        const list = await client.models.list();
+        const activeModels = list.data.map(m => m.id).sort();
+        console.log('Active models on Groq:', activeModels);
+    } catch (e: any) {
+        console.error('Error listing models:', e.message);
     }
 }
 

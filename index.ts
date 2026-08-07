@@ -16,7 +16,9 @@ server.on('error', (err: NodeJS.ErrnoException) => {
         console.error('[HTTP Server Error]:', err);
     }
 });
-server.listen(PORT);
+server.listen(PORT, () => {
+    console.log(`[HTTP Server] Health check server đang chạy ở port ${PORT}`);
+});
 
 // ============================================================
 // 🤖 AI Chatbot: Lê Minh Hải - Telegram Bot v3.0 MẤT DẠY EDITION
@@ -34,7 +36,8 @@ const openai = new OpenAI({
 // Model theo thứ tự ưu tiên (thông minh nhất → dự phòng)
 const MODELS = [
     'llama-3.3-70b-versatile',
-    'meta-llama/llama-4-scout-17b-16e-instruct',
+    'openai/gpt-oss-120b',
+    'qwen/qwen3.6-27b',
     'llama-3.1-8b-instant',
 ];
 
@@ -625,22 +628,21 @@ bot.on('text', async (ctx) => {
 // 🚀 KHỞI ĐỘNG BOT
 // ============================================================
 
-bot.launch()
-    .then(() => {
-        console.log('============================================');
-        console.log('🤖 Lê Minh Hải Bot v3.0 — MẤT DẠY EDITION is ONLINE!');
-        console.log('📅 Sinh nhật: 13/06/2003');
-        console.log('🎭 Tính cách: Mất dạy, bố láo, nói tục, nhưng thông minh vcl');
-        console.log('🛡️  Hệ thống phòng thủ Quang: ACTIVE');
-        console.log(`👑 Quang whitelist: ${QUANG_USER_IDS.size} ID(s)`);
-        console.log(`⏱️  Rate limit: ${RATE_LIMIT} tin/phút/user`);
-        console.log(`💾 Bộ nhớ: ${MAX_HISTORY_MESSAGES} tin/user + auto-summarize`);
-        console.log(`🕐 TTL: 24 giờ`);
-        console.log('============================================');
-    })
-    .catch((err) => {
-        console.error('[Lỗi Khởi Động Bot]:', err);
-    });
+console.log('⏳ Đang kết nối Telegram Bot...');
+bot.launch({ dropPendingUpdates: true }, () => {
+    console.log('============================================');
+    console.log(`🤖 @${bot.botInfo?.username || 'HaiLiLi_bot'} (Lê Minh Hải Bot v3.0) is ONLINE!`);
+    console.log('📅 Sinh nhật: 13/06/2003');
+    console.log('🎭 Tính cách: Mất dạy, bố láo, nói tục, nhưng thông minh vcl');
+    console.log('🛡️  Hệ thống phòng thủ Quang: ACTIVE');
+    console.log(`👑 Quang whitelist: ${QUANG_USER_IDS.size} ID(s)`);
+    console.log(`⏱️  Rate limit: ${RATE_LIMIT} tin/phút/user`);
+    console.log(`💾 Bộ nhớ: ${MAX_HISTORY_MESSAGES} tin/user + auto-summarize`);
+    console.log(`🕐 TTL: 24 giờ`);
+    console.log('============================================');
+}).catch((err) => {
+    console.error('[Lỗi Khởi Động Bot]:', err);
+});
 
 process.once('SIGINT',  () => { server.close(); bot.stop('SIGINT'); });
 process.once('SIGTERM', () => { server.close(); bot.stop('SIGTERM'); });

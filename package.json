@@ -5,7 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "test": "tsx test_api.ts"
   },
   "keywords": [],
   "author": "",
