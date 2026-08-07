@@ -48,10 +48,16 @@ if (!BOT_TOKEN) {
 const bot = new Telegraf(BOT_TOKEN);
 
 // ============================================================
-// WHITELIST QUANG THEO USER ID
+// WHITELIST ADMIN (ANH QUANG) THEO USER ID
 // ============================================================
+const envAdminIds = (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map(s => Number(s.trim()))
+    .filter(n => !isNaN(n) && n > 0);
+
 const QUANG_USER_IDS: Set<number> = new Set([
     1706435435, // QuangLV - Dev - Nhanh.vn
+    ...envAdminIds,
 ]);
 
 // ============================================================
@@ -482,6 +488,17 @@ bot.command('memory', (ctx) => {
         `- Tổng số tin nhắn: ${history.totalMessageCount}\n` +
         `- Hoạt động gần nhất: ${lastActiveStr}`
     );
+});
+
+// Tra cứu ID tài khoản
+bot.command(['id', 'whoami'], (ctx) => {
+    const userId = ctx.from.id;
+    const isQuang = QUANG_USER_IDS.has(userId);
+    if (isQuang) {
+        ctx.reply(`👑 Dạ thưa anh Quang, thông tin tài khoản của anh:\n- Telegram ID: \`${userId}\`\n- Quyền hạn: Quản trị viên (Admin) ✅`, { parse_mode: 'Markdown' });
+    } else {
+        ctx.reply(`Đây là Telegram ID của mày: \`${userId}\`.\nMày là user thường, éo có quyền quản trị đâu nhé! 🚫`, { parse_mode: 'Markdown' });
+    }
 });
 
 // Xử lý tin nhắn text
