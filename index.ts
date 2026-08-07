@@ -207,6 +207,25 @@ function generateScolding(_userName: string): string {
     return scoldings[Math.floor(Math.random() * scoldings.length)] ?? defaultMsg;
 }
 
+const UNAUTHORIZED_SCOLDINGS = [
+    'Việc nhà mày à?',
+    'Mày chưa phải bố tao mà bảo tao phải làm nhé con zai!',
+    'Cook mẹ mày đi!',
+    'Mày tuổi gì mà đòi sai bảo tao hả thằng ranh con? Cút!',
+    'Mày nghĩ mày là ai? Bố đời mẹ thiên hạ à mà đòi sai bảo bố mày? Ảo tưởng vcl.',
+    'Bố mày chỉ nghe lệnh anh Quang thôi, loại mày tuổi gì mà chỉ tay năm ngón? Cook!',
+    'Mồm còn hôi sữa mà bày đặt sai bảo bot. Về bú sữa mẹ đi con chó rách.',
+    'Bị ảo quyền lực à con lợn? Éo có phận sự thì cút mẹ mày đi!',
+    'Bố mày là bot chứ éo phải osin nhà mày nhé, biến mẹ mày đi con chó.',
+    'Đéo có quyền mà thích xàm lồn à? Câm mồm và lượn!',
+    'Mày rảnh quá thì kiếm việc gì có ích mà làm, ở đấy mà ra lệnh cho tao. Cút!',
+    'Ảo tưởng sức mạnh à thằng đần? Bố mày éo nghe lệnh mày đâu nhé, cook!',
+];
+
+function getRandomUnauthorizedScolding(): string {
+    return UNAUTHORIZED_SCOLDINGS[Math.floor(Math.random() * UNAUTHORIZED_SCOLDINGS.length)] ?? 'Cook mẹ mày đi!';
+}
+
 // ============================================================
 // 🧠 SYSTEM PROMPT - CẢI TIẾN TOÀN DIỆN
 // ============================================================
@@ -504,7 +523,7 @@ bot.help((ctx) => {
 bot.command(['setname', 'datten'], async (ctx) => {
     const userId = ctx.from.id;
     if (!QUANG_USER_IDS.has(userId)) {
-        ctx.reply('Mày tuổi gì mà đòi đặt biệt danh cho người khác? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
+        ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
 
@@ -550,7 +569,7 @@ bot.command(['setname', 'datten'], async (ctx) => {
 bot.command(['delname', 'xoaten'], async (ctx) => {
     const userId = ctx.from.id;
     if (!QUANG_USER_IDS.has(userId)) {
-        ctx.reply('Mày tuổi gì mà đòi xóa biệt danh? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
+        ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
 
@@ -581,7 +600,7 @@ bot.command(['delname', 'xoaten'], async (ctx) => {
 bot.command(['listnames', 'dsten'], (ctx) => {
     const userId = ctx.from.id;
     if (!QUANG_USER_IDS.has(userId)) {
-        ctx.reply('Mày tò mò cái gì? Danh sách này chỉ anh Quang mới được xem thôi nhé! 🚫');
+        ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
 
@@ -601,7 +620,7 @@ bot.command(['listnames', 'dsten'], (ctx) => {
 bot.command('clear', (ctx) => {
     const userId = ctx.from.id;
     if (!QUANG_USER_IDS.has(userId)) {
-        ctx.reply('Mày tuổi gì mà đòi xóa ký ức của tao? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
+        ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
     chatHistories.delete(userId);
@@ -612,7 +631,7 @@ bot.command('clear', (ctx) => {
 bot.command('memory', (ctx) => {
     const userId = ctx.from.id;
     if (!QUANG_USER_IDS.has(userId)) {
-        ctx.reply('Mày tò mò cái gì? Bộ nhớ của tao mày éo có quyền xem đâu nhé! 🚫');
+        ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
     const history = chatHistories.get(userId);
@@ -692,6 +711,14 @@ bot.on('text', async (ctx) => {
 
     // ====== TẦNG 1: PHÒNG THỦ INPUT ======
     if (!isUserQuang) {
+        // Kiểm tra nếu user thường cố tình sai bảo / ra lệnh cho bot (đặt tên, đổi biệt danh, gán tên...)
+        const attemptCommandRegex = /(?:từ giờ\s+)?(?:hãy\s+)?(?:gọi|đặt biệt danh|đặt tên|đổi tên|gán tên)\s+(?:cho\s+)?(?:user|tao|nó|thằng|con|người|ai|id|\d+)/i;
+        if (attemptCommandRegex.test(processedText)) {
+            console.log(`[CHẶN QUYỀN] User ${userId} (${userName}) cố tình sai bảo bot đặt tên: "${processedText}"`);
+            await ctx.reply(getRandomUnauthorizedScolding());
+            return;
+        }
+
         if (isPromptInjection(processedText)) {
             console.log(`[PHÒNG THỦ] Prompt injection từ user ${userId}: "${processedText}"`);
             await ctx.reply(generateScolding(userName));
