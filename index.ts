@@ -53,8 +53,7 @@ const bot = new Telegraf(BOT_TOKEN);
 // WHITELIST QUANG THEO USER ID
 // ============================================================
 const QUANG_USER_IDS: Set<number> = new Set([
-    // Thêm Telegram user ID của Quang vào đây (lấy từ @userinfobot)
-    // Ví dụ: 123456789
+    1706435435, // QuangLV - Dev - Nhanh.vn
 ]);
 
 // ============================================================
@@ -426,7 +425,26 @@ async function enqueueMessage(userId: number, task: () => Promise<void>): Promis
 
 bot.catch((err) => console.error('[Lỗi Hệ Thống]:', err));
 
+bot.use((ctx, next) => {
+    const from = ctx.from;
+    const text = (ctx.message as any)?.text || (ctx.callbackQuery as any)?.data || '';
+    const chatType = ctx.chat?.type;
+    console.log(`[INCOMING] [${chatType}] From ${from?.first_name} (@${from?.username} | ID: ${from?.id}): "${text}"`);
+    return next();
+});
+
 bot.start((ctx) => {
+    const isUserQuang = QUANG_USER_IDS.has(ctx.from.id);
+    if (isUserQuang) {
+        ctx.reply(
+            `Em chào anh Quang ạ! 🙇‍♂️\n` +
+            `Em là Hải lì — sẵn sàng hỗ trợ anh bất cứ lúc nào ạ!\n\n` +
+            `/help — xem danh sách lệnh\n` +
+            `/memory — xem ký ức em đang nhớ về anh\n` +
+            `/clear — đặt lại cuộc trò chuyện`
+        );
+        return;
+    }
     ctx.reply(
         `Ê mày. Tao là Hải — Hải lì. Thằng bot mất dạy nhất Telegram.\n` +
         `Mày muốn gì thì sủa đi, tao nghe. Nhưng sủa ngu thì tao chửi. Hiểu chưa?\n\n` +
