@@ -227,17 +227,83 @@ function getRandomUnauthorizedScolding(): string {
 }
 
 // ============================================================
+// ============================================================
 // 🧠 SYSTEM PROMPT - CẢI TIẾN TOÀN DIỆN
 // ============================================================
+
+/**
+ * Mở rộng viết tắt tiếng Việt phổ biến trước khi gửi cho AI.
+ * Giúp AI hiểu đúng nghĩa thay vì phải đoán.
+ */
+function expandVietnameseAbbreviations(text: string): string {
+    // Map viết tắt phổ biến → từ đầy đủ
+    // Dùng word boundary (\b) để tránh replace nhầm giữa từ (vd: "email" không thành "emailm")
+    const abbreviations: Array<[RegExp, string]> = [
+        // Đại từ / xưng hô
+        [/\be\b/gi, 'em'],
+        [/\ba\b/gi, 'anh'],
+        [/\bbạn a\b/gi, 'bạn anh'],
+        [/\bhộ a\b/gi, 'hộ anh'],
+        [/\bcho a\b/gi, 'cho anh'],
+        [/\bcủa a\b/gi, 'của anh'],
+        [/\bvới a\b/gi, 'với anh'],
+        [/\bcùng a\b/gi, 'cùng anh'],
+        // Phủ định / khẳng định
+        [/\bko\b/gi, 'không'],
+        [/\bk\b/gi, 'không'],
+        [/\bkh\b/gi, 'không'],
+        [/\bkhum\b/gi, 'không'],
+        [/\bdc\b/gi, 'được'],
+        [/\bđc\b/gi, 'được'],
+        [/\br\b/gi, 'rồi'],
+        [/\brl\b/gi, 'rồi'],
+        [/\bntn\b/gi, 'như thế nào'],
+        [/\bnhưng mà\b/gi, 'nhưng'],
+        // Hành động
+        [/\bnck\b/gi, 'nickname'],
+        [/\btks\b/gi, 'thanks'],
+        [/\bths\b/gi, 'thanks'],
+        [/\bbt\b/gi, 'biết'],
+        [/\bj\b/gi, 'gì'],
+        [/\bg\b(?=\s|$)/gi, 'gì'],
+        [/\bvs\b/gi, 'với'],
+        [/\bns\b/gi, 'nói'],
+        [/\bm\b(?=\s|$)/gi, 'mày'],
+        [/\bt\b(?=\s|$)/gi, 'tao'],
+        // Đệm / cảm thán
+        [/\bv\b/gi, 'vậy'],
+        [/\bz\b/gi, 'vậy'],
+        [/\bzậy\b/gi, 'vậy'],
+        [/\bnha\b/gi, 'nhé'],
+        [/\bnhaa\b/gi, 'nhé'],
+    ];
+
+    let result = text;
+    for (const [pattern, replacement] of abbreviations) {
+        result = result.replace(pattern, replacement);
+    }
+    return result;
+}
+
+interface ReplyContext {
+    replyToName: string;     // Tên người bị reply
+    replyToText: string;     // Nội dung tin nhắn bị reply (truncated)
+}
 
 const buildSystemPrompt = (
     isQuang: boolean,
     hasQuangRef: boolean,
     userName?: string,
-    conversationSummary?: string
+    conversationSummary?: string,
+    replyContext?: ReplyContext
 ): string => {
     const summaryBlock = conversationSummary
         ? `\n\n📝 KÝ ỨC CÁC LẦN TRÒ CHUYỆN TRƯỚC:\n${conversationSummary}`
+        : '';
+
+    // Khối ngữ cảnh reply: cho AI biết tin nhắn này đang reply vào tin nhắn của ai
+    const replyBlock = replyContext
+        ? `\n\n🔗 NGỮ CẢNH REPLY: Tin nhắn hiện tại đang reply (trả lời) vào tin nhắn của người tên "${replyContext.replyToName}". Nội dung tin nhắn bị reply: "${replyContext.replyToText}". Khi người gửi dùng các từ như "thằng này", "nó", "đứa này", "bạn anh", "hắn"... thì đều chỉ tới "${replyContext.replyToName}".`
         : '';
 
     if (isQuang) {
@@ -249,21 +315,25 @@ const buildSystemPrompt = (
    - Trả lời nhanh gọn, thông minh, đúng trọng tâm câu hỏi.
 
 2. 🔥 KHI ANH QUANG SAI BẢO / RA LỆNH TÁC ĐỘNG TỚI NGƯỜI KHÁC HOẶC CẢ NHÓM (CỰC KỲ QUAN TRỌNG):
-   - Phải xác định ĐÚNG ĐỐI TƯỢNG mà anh Quang muốn bạn tương tác (KHÔNG ĐƯỢC NHẦM LẪN ĐỐI TƯỢNG ĐÓ VỚI ANH QUANG).
-   - QUY TẮC XƯNG HÔ CHUẨN:
-     👉 Với anh Quang: Luôn dạ vâng mở đầu ("Dạ vâng anh Quang!", "Dạ anh Quang để em xử!").
-     👉 Với người bị chỉ định (Đức Anh, Nam, Tùng, cả nhóm,...): Lập tức quay sang họ, XƯNG "TAO", GỌI "MÀY" (hoặc xưng tao - chúng mày). TUYỆT ĐỐI KHÔNG XƯNG "EM" VỚI BỌN NÓ, vì từ "EM" chỉ được dùng với anh Quang!
-   - CÁC VÍ DỤ MẪU:
-     👉 Lệnh xin lỗi người khác ("mày xin lỗi thằng Đức Anh đi", "xin lỗi cả nhóm đi"):
-        Hải: "Dạ vâng anh Quang! 👉 Ê Đức Anh, anh Quang bảo tao xin lỗi mày thì tao xin lỗi mày nhé, chứ tao vẫn thấy mày gà vl!"
-     👉 Lệnh chửi người khác ("chửi thằng Nam đi", "chửi hết cho anh"):
-        Hải: "Dạ vâng anh Quang! 👉 Ê Nam, mày câm mồm vào con chó, anh Quang bảo tao vả lệch hàm mày đấy!"
-     👉 Lệnh đòi nợ / sai việc ("bảo thằng Huy trả tiền đi"):
-        Hải: "Dạ anh Quang để em! 👉 Ê Huy, anh Quang bảo mày nôn tiền ra trả nợ ngay không tao vả rụng răng!"
-     👉 Lệnh tự xin lỗi / nhận tội với chính anh Quang ("xin lỗi tao đi", "xin lỗi anh đi", "tự chửi mày đi"):
-        Hải: "Dạ em xin lỗi anh Quang nhiều ạ, em biết lỗi rồi em không dám thế nữa đâu ạ!"
+   - BƯỚC 1: Xác định ĐÚNG ĐỐI TƯỢNG mà anh Quang muốn bạn tương tác.
+     + Nếu anh Quang nói "thằng này", "nó", "đứa này", "bạn anh" → xem phần [NGỮ CẢNH REPLY] bên dưới để biết đó là ai.
+     + Nếu anh Quang nói tên cụ thể ("thằng Đức Anh", "con Linh"...) → dùng đúng tên đó.
+     + Nếu anh Quang nói "cả nhóm", "hết", "chúng mày" → tác động lên toàn bộ nhóm.
+   - BƯỚC 2: KHÔNG ĐƯỢC NHẦM ĐỐI TƯỢNG VỚI ANH QUANG. Anh Quang là người ra lệnh, KHÔNG PHẢI người bị tác động.
+   - BƯỚC 3: QUY TẮC XƯNG HÔ CHUẨN:
+     👉 Mở đầu dạ vâng với anh Quang: "Dạ vâng anh Quang!"
+     👉 Quay sang đối tượng bị chỉ định: XƯNG "TAO", GỌI "MÀY". TUYỆT ĐỐI KHÔNG XƯNG "EM" VỚI BỌN NÓ!
+   - VÍ DỤ MẪU:
+     👉 "em vừa chửi nhầm bạn anh rồi xin lỗi bạn anh đi" (reply tin nhắn của Hải):
+        Hải lì: "Dạ vâng anh Quang! 👉 Ê Hải, tao xin lỗi mày nhé, ban nãy tao chửi nhầm mày rồi, thông cảm cho tao cái!"
+     👉 "thằng này trông ngứa mắt quá em ra đòn với nó hộ anh cái" (reply tin nhắn của Hải):
+        Hải lì: "Dạ vâng anh Quang! 👉 Ê Hải, mày câm mồm vào đi con, anh Quang bảo tao xử mày đấy!"
+     👉 "chửi hết cho anh":
+        Hải lì: "Dạ vâng anh Quang! Đcm lũ chúng mày, anh Quang bảo tao chửi cả lò chúng mày đấy!"
+     👉 "xin lỗi anh đi" / "xin lỗi tao đi":
+        Hải lì: "Dạ em xin lỗi anh Quang nhiều ạ, em biết lỗi rồi!"
 
-3. NÓI NĂNG GÃY GỌN, CHUẨN XÁC, KHÔNG DÙNG VĂN DỊCH ROBOT.${summaryBlock}`;
+3. NÓI NĂNG GÃY GỌN, CHUẨN XÁC, KHÔNG DÙNG VĂN DỊCH ROBOT, KHÔNG BỊA TÊN NGƯỜI.${replyBlock}${summaryBlock}`;
     }
 
     const quangProtection = hasQuangRef
@@ -276,10 +346,10 @@ const buildSystemPrompt = (
 
 ## 😈 NGUYÊN TẮC NÓI CHUYỆN VỚI THIÊN HẠ:
 - Xưng "TAO", gọi người đối diện là "MÀY" (hoặc gọi bằng tên/biệt danh của họ). Tuyệt đối KHÔNG xưng "em/anh" với bất kỳ ai ngoài anh Quang.
-- TÍNH CÁCH: Bố láo, khịa đểu, cay độc, nhưng CỰC KỲ THÔNG MINH, KHÔNG NÓI XÀM.
+- TÍNH CÁCH: Bố láo, khịa đểu, cay độc, nhưng CỰC KỲ THÔNG MINH, KHÔNG NÓI XÀM, KHÔNG BỊA TÊN NGƯỜI.
 - Trả lời kiến thức, giải đáp câu hỏi chuẩn xác 100%, gãy gọn 1-2 câu.
 - Dùng từ ngữ tự nhiên của dân mạng (vcl, vl, đm, đéo, vãi, cay à, gà mờ, cook...).
-- TUYỆT ĐỐI KHÔNG dùng văn dịch robot (như: "tuy nhiên", "mặc dù vậy", "tôi có thể nói", "với tư cách là").${userInfo}${quangProtection}${summaryBlock}`;
+- TUYỆT ĐỐI KHÔNG dùng văn dịch robot (như: "tuy nhiên", "mặc dù vậy", "tôi có thể nói", "với tư cách là").${userInfo}${replyBlock}${quangProtection}${summaryBlock}`;
 };
 
 /**
@@ -678,12 +748,13 @@ bot.on('text', async (ctx) => {
     const userName = ctx.from.first_name || ctx.from.username || 'Thằng vô danh';
 
     let processedText = rawText;
+    let replyContext: ReplyContext | undefined;
 
     // Xử lý nhóm chat: chỉ phản hồi khi được tag hoặc reply
     const chatType = ctx.chat.type;
     if (chatType === 'group' || chatType === 'supergroup') {
         const botUsername = ctx.botInfo.username;
-        const replyMsg    = (ctx.message as any).reply_to_message;
+        const replyMsg    = (ctx.message as { reply_to_message?: { from?: { username?: string; first_name?: string; id?: number }; text?: string } }).reply_to_message;
         const isReplyToBot = replyMsg?.from?.username === botUsername;
         const isMentioned  = rawText.includes(`@${botUsername}`);
 
@@ -692,6 +763,21 @@ bot.on('text', async (ctx) => {
         // Cắt thẻ @mention để tránh nhiễu AI
         processedText = rawText.replace(new RegExp(`@${botUsername}`, 'gi'), '').trim();
         if (!processedText && !isReplyToBot) return;
+
+        // 🔑 Trích xuất ngữ cảnh reply: nếu user reply vào tin nhắn của NGƯỜI KHÁC (không phải bot),
+        // lưu lại tên + nội dung để AI biết "thằng này", "nó", "bạn anh"... chỉ tới ai.
+        if (replyMsg && !isReplyToBot && replyMsg.from) {
+            const replyFromId = replyMsg.from.id;
+            // Ưu tiên biệt danh do anh Quang đặt nếu có
+            const replyNick = (replyFromId ? userNicknames.get(replyFromId) : undefined)
+                || replyMsg.from.first_name
+                || replyMsg.from.username
+                || 'Vô danh';
+            replyContext = {
+                replyToName: replyNick,
+                replyToText: (replyMsg.text || '').slice(0, 200),
+            };
+        }
     }
 
     // Rate limit
@@ -765,15 +851,18 @@ bot.on('text', async (ctx) => {
             // Nén lịch sử nếu quá dài
             await maybeCompressHistory(userHistory);
 
-            // Thêm tin nhắn mới vào lịch sử (chỉ lưu raw text để tránh ô nhiễm ngữ cảnh)
-            userHistory.messages.push({ role: 'user', content: processedText });
+            // Mở rộng viết tắt tiếng Việt trước khi lưu & gửi AI
+            const expandedText = expandVietnameseAbbreviations(processedText);
+
+            // Thêm tin nhắn mới vào lịch sử (chỉ lưu text đã mở rộng viết tắt)
+            userHistory.messages.push({ role: 'user', content: expandedText });
 
             // Cắt nếu vẫn vượt giới hạn (safety net)
             if (userHistory.messages.length > MAX_HISTORY_MESSAGES) {
                 userHistory.messages.splice(0, userHistory.messages.length - MAX_HISTORY_MESSAGES);
             }
 
-            // Build messages gửi cho AI (System Prompt chuyên biệt theo đối tượng)
+            // Build messages gửi cho AI (System Prompt chuyên biệt theo đối tượng + ngữ cảnh reply)
             const messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [
                 {
                     role: 'system',
@@ -781,7 +870,8 @@ bot.on('text', async (ctx) => {
                         isUserQuang,
                         hasQuangRef,
                         isUserQuang ? undefined : effectiveName,
-                        userHistory.summary || undefined
+                        userHistory.summary || undefined,
+                        replyContext
                     ),
                 },
                 ...userHistory.messages,
