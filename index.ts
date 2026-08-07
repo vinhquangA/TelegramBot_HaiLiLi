@@ -2,6 +2,8 @@ import { Telegraf } from 'telegraf';
 import OpenAI from 'openai';
 import 'dotenv/config';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 const PORT = Number(process.env.PORT) || 3000;
 const server = http.createServer((_, res) => res.end('Bot is alive!'));
@@ -59,6 +61,39 @@ const QUANG_USER_IDS: Set<number> = new Set([
     1706435435, // QuangLV - Dev - Nhanh.vn
     ...envAdminIds,
 ]);
+
+// ============================================================
+// 🏷️ HỆ THỐNG BIỆT DANH USER (CHỈ ADMIN QUANG ĐẶT ĐƯỢC)
+// ============================================================
+const NICKNAMES_FILE = path.join(process.cwd(), 'nicknames.json');
+let userNicknames: Map<number, string> = new Map();
+
+function loadNicknames(): void {
+    try {
+        if (fs.existsSync(NICKNAMES_FILE)) {
+            const raw = fs.readFileSync(NICKNAMES_FILE, 'utf-8');
+            const data = JSON.parse(raw);
+            userNicknames = new Map(Object.entries(data).map(([k, v]) => [Number(k), String(v)]));
+            console.log(`[NICKNAMES] Đã nạp ${userNicknames.size} biệt danh.`);
+        }
+    } catch (err) {
+        console.error('[NICKNAMES] Lỗi khi đọc nicknames.json:', err);
+    }
+}
+
+function saveNicknames(): void {
+    try {
+        const obj: Record<string, string> = {};
+        for (const [k, v] of userNicknames.entries()) {
+            obj[String(k)] = v;
+        }
+        fs.writeFileSync(NICKNAMES_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+        console.error('[NICKNAMES] Lỗi khi lưu nicknames.json:', err);
+    }
+}
+
+loadNicknames();
 
 // ============================================================
 // 🛡️ HỆ THỐNG PHÒNG THỦ - BẢO VỆ "QUANG"
@@ -205,6 +240,9 @@ Luôn kiểm tra [User: Tên] ở đầu tin nhắn để xưng hô chuẩn xác
    - Ví dụ: "Mày hỏi câu này cơ bản vl. Đáp án là 42 nhé."
 
 3. TUYỆT ĐỐI KHÔNG TRỘN LẪN hai kiểu xưng hô trong cùng một câu.
+
+## 🏷️ BIỆT DANH USER (DO ANH QUANG ĐẶT):
+- Xem kỹ phần [User: Tên]: Nếu user có biệt danh do Anh Quang đặt (ví dụ 'Nam nghiện', 'Đức béo', 'Hải ngáo',...), hãy gọi họ bằng chính biệt danh đó trong câu trả lời để xỉa xói, châm chọc một cách hài hước và tự nhiên nhất.
 
 ## 🧠 TRÍ THÔNG MINH & PHONG CÁCH:
 - Rất giỏi về công nghệ, lập trình, toán học, khoa học và kiến thức đời sống.
@@ -420,10 +458,13 @@ bot.start((ctx) => {
         ctx.reply(
             `Em chào anh Quang ạ! 🙇‍♂️\n` +
             `Em là Hải lì — sẵn sàng hỗ trợ anh bất cứ lúc nào ạ!\n\n` +
-            `👑 Lệnh quản trị của anh Quang:\n` +
-            `/clear — Đặt lại cuộc trò chuyện & xóa bộ nhớ\n` +
-            `/memory — Xem trạng thái bộ nhớ AI\n` +
-            `/help — Xem danh sách tính năng`
+            `👑 Danh sách lệnh quản trị của anh Quang:\n` +
+            `• /setname <ID> <Tên> — Đặt biệt danh (hoặc reply tin nhắn + /setname <Tên>)\n` +
+            `• /delname <ID> — Xóa biệt danh\n` +
+            `• /listnames — Xem tất cả biệt danh anh đã đặt\n` +
+            `• /clear — Đặt lại cuộc trò chuyện & xóa bộ nhớ\n` +
+            `• /memory — Xem trạng thái bộ nhớ AI\n` +
+            `• /help — Xem danh sách tính năng`
         );
         return;
     }
@@ -442,8 +483,11 @@ bot.help((ctx) => {
             `💬 Trò chuyện & Giải đáp thắc mắc (Code, toán học, công nghệ, đời sống...)\n` +
             `🧠 Ghi nhớ ngữ cảnh trò chuyện thông minh\n\n` +
             `👑 Lệnh quản trị dành riêng cho anh Quang:\n` +
-            `/clear — Xóa sạch lịch sử và đặt lại hội thoại\n` +
-            `/memory — Kiểm tra dung lượng bộ nhớ đang lưu trữ`
+            `• /setname <ID> <Tên> — Đặt biệt danh (hoặc reply tin nhắn + /setname <Tên>)\n` +
+            `• /delname <ID> — Xóa biệt danh (hoặc reply tin nhắn + /delname)\n` +
+            `• /listnames — Xem danh sách biệt danh\n` +
+            `• /clear — Xóa sạch lịch sử và đặt lại hội thoại\n` +
+            `• /memory — Kiểm tra dung lượng bộ nhớ đang lưu trữ`
         );
         return;
     }
@@ -454,6 +498,103 @@ bot.help((ctx) => {
         `🤔 Tranh luận — mày sai tao chửi, mày đúng tao khen.\n\n` +
         `Cứ nhắn thẳng vào vấn đề. Đừng có vòng vo.`
     );
+});
+
+// Đặt biệt danh cho User (Chỉ dành riêng cho Anh Quang)
+bot.command(['setname', 'datten'], async (ctx) => {
+    const userId = ctx.from.id;
+    if (!QUANG_USER_IDS.has(userId)) {
+        ctx.reply('Mày tuổi gì mà đòi đặt biệt danh cho người khác? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
+        return;
+    }
+
+    const text = ctx.message.text;
+    const parts = text.split(/\s+/).slice(1);
+    const replyMsg = (ctx.message as any).reply_to_message;
+
+    let targetUserId: number | null = null;
+    let targetNickname = '';
+
+    if (replyMsg && replyMsg.from) {
+        // Trường hợp 1: Reply tin nhắn -> /setname <Tên>
+        targetUserId = replyMsg.from.id;
+        targetNickname = parts.join(' ').trim();
+    } else if (parts.length >= 2 && !isNaN(Number(parts[0]))) {
+        // Trường hợp 2: Gõ /setname <ID> <Tên>
+        targetUserId = Number(parts[0]);
+        targetNickname = parts.slice(1).join(' ').trim();
+    }
+
+    if (!targetUserId || !targetNickname) {
+        ctx.reply(
+            `Dạ thưa anh Quang, anh có thể đặt biệt danh theo 2 cách:\n\n` +
+            `1. Reply tin nhắn của người đó rồi gõ: \`/setname <Biệt danh>\`\n` +
+            `2. Gõ trực tiếp: \`/setname <Telegram_ID> <Biệt danh>\`\n\n` +
+            `Ví dụ: \`/setname 5048783557 Nam nghiện\``,
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    userNicknames.set(targetUserId, targetNickname);
+    saveNicknames();
+
+    ctx.reply(
+        `Dạ em đã ghi nhớ rồi anh Quang! 🫡\n` +
+        `Kể từ giờ, user ID \`${targetUserId}\` sẽ được em gọi là: *"${targetNickname}"* ạ!`,
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// Xóa biệt danh User (Chỉ dành riêng cho Anh Quang)
+bot.command(['delname', 'xoaten'], async (ctx) => {
+    const userId = ctx.from.id;
+    if (!QUANG_USER_IDS.has(userId)) {
+        ctx.reply('Mày tuổi gì mà đòi xóa biệt danh? Lệnh này chỉ anh Quang mới được dùng thôi nhé! 🚫');
+        return;
+    }
+
+    const text = ctx.message.text;
+    const parts = text.split(/\s+/).slice(1);
+    const replyMsg = (ctx.message as any).reply_to_message;
+
+    let targetUserId: number | null = null;
+    if (replyMsg && replyMsg.from) {
+        targetUserId = replyMsg.from.id;
+    } else if (parts.length >= 1 && !isNaN(Number(parts[0]))) {
+        targetUserId = Number(parts[0]);
+    }
+
+    if (!targetUserId || !userNicknames.has(targetUserId)) {
+        ctx.reply(`Dạ không tìm thấy biệt danh nào của user ID này để xóa ạ.`);
+        return;
+    }
+
+    const oldNick = userNicknames.get(targetUserId);
+    userNicknames.delete(targetUserId);
+    saveNicknames();
+
+    ctx.reply(`Dạ em đã xóa biệt danh *"${oldNick}"* của user ID \`${targetUserId}\` rồi ạ!`, { parse_mode: 'Markdown' });
+});
+
+// Xem danh sách biệt danh (Chỉ dành riêng cho Anh Quang)
+bot.command(['listnames', 'dsten'], (ctx) => {
+    const userId = ctx.from.id;
+    if (!QUANG_USER_IDS.has(userId)) {
+        ctx.reply('Mày tò mò cái gì? Danh sách này chỉ anh Quang mới được xem thôi nhé! 🚫');
+        return;
+    }
+
+    if (userNicknames.size === 0) {
+        ctx.reply('Dạ thưa anh Quang, hiện tại anh chưa đặt biệt danh nào cho ai ạ.');
+        return;
+    }
+
+    let msg = `👑 *Danh sách biệt danh do Anh Quang đã đặt (${userNicknames.size}):*\n\n`;
+    for (const [id, nick] of userNicknames.entries()) {
+        msg += `• ID: \`${id}\` → *"${nick}"*\n`;
+    }
+    ctx.reply(msg, { parse_mode: 'Markdown' });
 });
 
 // Xóa lịch sử chat (Chỉ dành riêng cho Anh Quang)
@@ -533,6 +674,22 @@ bot.on('text', async (ctx) => {
 
     const isUserQuang = QUANG_USER_IDS.has(userId);
 
+    // ====== NHẬN DIỆN CÂU LỆNH ĐẶT BIỆT DANH TỰ NHIÊN TỪ ANH QUANG ======
+    if (isUserQuang) {
+        const setNameRegex = /(?:từ giờ\s+)?(?:hãy\s+)?(?:gọi|đặt biệt danh cho)\s+(?:user\s+)?(?:có\s+)?(?:id\s+)?(?:là\s+)?(\d{6,15})\s*(?:là|=|thành)\s*(.+)/i;
+        const match = processedText.match(setNameRegex);
+        if (match && match[1] && match[2]) {
+            const targetId = Number(match[1]);
+            const newNick = match[2].trim().replace(/^["']|["']$/g, '');
+            if (targetId && newNick) {
+                userNicknames.set(targetId, newNick);
+                saveNicknames();
+                await ctx.reply(`Dạ em nhớ rồi anh Quang! 🫡\nKể từ bây giờ em sẽ gọi user ID \`${targetId}\` là *"${newNick}"* ạ!`, { parse_mode: 'Markdown' });
+                return;
+            }
+        }
+    }
+
     // ====== TẦNG 1: PHÒNG THỦ INPUT ======
     if (!isUserQuang) {
         if (isPromptInjection(processedText)) {
@@ -548,6 +705,10 @@ bot.on('text', async (ctx) => {
     }
 
     const hasQuangRef = containsQuangReference(processedText);
+
+    // Lấy biệt danh tuỳ chỉnh nếu anh Quang đã đặt
+    const customNick = userNicknames.get(userId);
+    const effectiveName = customNick ? `${customNick} (Tên thật: ${userName})` : userName;
 
     // ====== TẦNG 2: XỬ LÝ AI (QUEUE) ======
     await enqueueMessage(userId, async () => {
@@ -569,7 +730,7 @@ bot.on('text', async (ctx) => {
             await maybeCompressHistory(userHistory);
 
             // Thêm tin nhắn mới vào lịch sử
-            const formattedPrompt = `[User: ${userName}] ${processedText}`;
+            const formattedPrompt = `[User: ${effectiveName}] ${processedText}`;
             userHistory.messages.push({ role: 'user', content: formattedPrompt });
 
             // Cắt nếu vẫn vượt giới hạn (safety net)
