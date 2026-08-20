@@ -37,8 +37,8 @@ const openai = new OpenAI({
 
 // Model theo thứ tự ưu tiên (thông minh nhất → dự phòng)
 const MODELS = [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
 ];
 
 // 2. Khởi tạo Telegram Bot
@@ -450,7 +450,7 @@ async function summarizeConversation(messages: ChatEntry[]): Promise<string> {
 
     try {
         const response = await openai.chat.completions.create({
-            model: MODELS[0] ?? 'llama-3.3-70b-versatile',
+            model: MODELS[0] ?? 'openai/gpt-oss-120b',
             messages: [
                 {
                     role: 'system',
@@ -746,6 +746,81 @@ bot.command(['id', 'whoami'], (ctx) => {
     }
 });
 
+// ============================================================
+// 🐕 LỆNH /tuat - Gửi ảnh GIF Tuất
+// ============================================================
+// 👉 Thay 3 file_id bên dưới bằng file_id thật của 3 GIF bạn muốn gửi.
+// 👉 Để lấy file_id: gửi GIF vào bot rồi dùng lệnh /getid (xem bên dưới).
+const TUAT_GIF_FILE_IDS = [
+    'CAACAgUAAyEFAATn36U3AAJKk2qCatMRK3tiMxhOI_5SHoytFW7oAAI-HwAChm7gVyn5F0-Lz-aWPQQ',
+    'CAACAgUAAxkBAAICHGqGx8mrxO87pAekbXMcHth2EhA2AAI3HwACLzfgVwHuj6tfrWV5PQQ',
+    'CAACAgUAAxkBAAICH2qGyDyRjB_1vgKfEtdNBZpeqGGeAAIBJgACWevgVxBvUEAKr7YDPQQ',
+];
+
+bot.command('tuat', async (ctx) => {
+    const validGifs = TUAT_GIF_FILE_IDS.filter(id => !id.startsWith('PASTE_'));
+    if (validGifs.length === 0) {
+        await ctx.reply('⚠️ Chưa cấu hình file_id cho GIF tuất! Anh Quang gửi GIF vào bot rồi dùng /getid để lấy file_id nhé.');
+        return;
+    }
+    try {
+        const randomGif = validGifs[Math.floor(Math.random() * validGifs.length)];
+        await ctx.replyWithSticker(randomGif);
+    } catch (err) {
+        console.error('[/tuat] Lỗi gửi GIF:', err);
+        await ctx.reply('Éo gửi được GIF, kiểm tra lại file_id đi!');
+    }
+});
+
+// ============================================================
+// 🔧 LỆNH /getid - Lấy file_id từ GIF (Chỉ Admin Quang)
+// ============================================================
+// Cách dùng: Reply vào một ảnh GIF rồi gõ /getid
+// Bot sẽ trả về file_id để bạn dán vào TUAT_GIF_FILE_ID ở trên.
+bot.command('getid', async (ctx) => {
+    if (!QUANG_USER_IDS.has(ctx.from.id)) {
+        await ctx.reply(getRandomUnauthorizedScolding());
+        return;
+    }
+    const replyMsg = (ctx.message as any).reply_to_message;
+    if (!replyMsg) {
+        await ctx.reply('Dạ anh Quang, anh hãy reply vào một ảnh GIF/sticker rồi gõ /getid để em lấy file_id ạ!');
+        return;
+    }
+    const animation = replyMsg.animation;
+    const sticker = replyMsg.sticker;
+    const photo = replyMsg.photo;
+    const video = replyMsg.video;
+    const document = replyMsg.document;
+
+    if (animation) {
+        await ctx.reply(`🎬 *GIF Animation file\\_id:*\n\`${animation.file_id}\``, { parse_mode: 'Markdown' });
+    } else if (sticker) {
+        await ctx.reply(`🏷️ *Sticker file\\_id:*\n\`${sticker.file_id}\``, { parse_mode: 'Markdown' });
+    } else if (photo && photo.length > 0) {
+        const largest = photo[photo.length - 1];
+        await ctx.reply(`🖼️ *Photo file\\_id:*\n\`${largest.file_id}\``, { parse_mode: 'Markdown' });
+    } else if (video) {
+        await ctx.reply(`🎥 *Video file\\_id:*\n\`${video.file_id}\``, { parse_mode: 'Markdown' });
+    } else if (document) {
+        await ctx.reply(`📄 *Document file\\_id:*\n\`${document.file_id}\``, { parse_mode: 'Markdown' });
+    } else {
+        await ctx.reply('Dạ em không tìm thấy file nào trong tin nhắn được reply ạ. Anh thử reply vào GIF/ảnh/video nhé!');
+    }
+});
+
+// Bắt GIF/Animation gửi trực tiếp (không qua reply) - chỉ Admin
+bot.on('animation', async (ctx) => {
+    if (!QUANG_USER_IDS.has(ctx.from.id)) return;
+    const fileId = ctx.message.animation.file_id;
+    await ctx.reply(
+        `📌 *Em nhận được GIF từ anh Quang!*\n\n` +
+        `File ID:\n\`${fileId}\`\n\n` +
+        `💡 Anh copy file\\_id trên rồi dán vào biến \`TUAT_GIF_FILE_ID\` trong code nhé!`,
+        { parse_mode: 'Markdown' }
+    );
+});
+
 // Xử lý tin nhắn text
 bot.on('text', async (ctx) => {
     // Giới hạn độ dài input 2000 ký tự
@@ -918,7 +993,7 @@ bot.on('text', async (ctx) => {
                 console.log('[API] Tất cả model fail, thử fallback tối giản...');
                 try {
                     const fallbackResponse = await openai.chat.completions.create({
-                        model: 'llama-3.1-8b-instant',
+                        model: 'openai/gpt-oss-20b',
                         messages: [
                             {
                                 role: 'system',
