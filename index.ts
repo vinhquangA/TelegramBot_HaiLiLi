@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Context, Telegraf } from 'telegraf';
 import OpenAI from 'openai';
 import 'dotenv/config';
 import http from 'http';
@@ -6,7 +6,24 @@ import fs from 'fs';
 import path from 'path';
 
 const PORT = Number(process.env.PORT) || 3000;
-const server = http.createServer((_, res) => res.end('Bot is alive!'));
+let botReady = false;
+const server = http.createServer((req, res) => {
+    const isHealthy = botReady;
+    const statusCode = isHealthy ? 200 : 503;
+    const body = JSON.stringify({ status: isHealthy ? 'ok' : 'starting' });
+
+    if (req.url === '/health' || req.url === '/ready' || req.url === '/') {
+        res.writeHead(statusCode, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+        });
+        res.end(body);
+        return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+});
 server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
         console.warn(`⚠️ Port ${PORT} đang bị chiếm, thử lại sau 5s...`);
@@ -33,6 +50,8 @@ server.listen(PORT, () => {
 const openai = new OpenAI({
     apiKey: process.env.GROQ_API_KEY || '',
     baseURL: 'https://api.groq.com/openai/v1',
+    timeout: 30_000,
+    maxRetries: 1,
 });
 
 // Model theo thứ tự ưu tiên (thông minh nhất → dự phòng)
@@ -45,6 +64,10 @@ const MODELS = [
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 if (!BOT_TOKEN) {
     console.error('Đmm, éo tìm thấy TELEGRAM_BOT_TOKEN trong .env! Kiểm tra lại đi!');
+    process.exit(1);
+}
+if (!process.env.GROQ_API_KEY) {
+    console.error('Không tìm thấy GROQ_API_KEY trong .env!');
     process.exit(1);
 }
 const bot = new Telegraf(BOT_TOKEN);
@@ -392,22 +415,27 @@ interface UserHistory {
 }
 
 // --- Cấu hình bộ nhớ ---
-const MAX_HISTORY_MESSAGES  = 30;               // Số tin tối đa giữ trong RAM
-const SUMMARIZE_THRESHOLD   = 40;               // Khi vượt 40 tin → kích hoạt nén
-const KEEP_AFTER_SUMMARY    = 20;               // Giữ lại 20 tin gần nhất sau khi nén
+const MAX_HISTORY_MESSAGES  = 24;               // Số tin tối đa giữ trong RAM
+const SUMMARIZE_THRESHOLD   = 24;               // Khi đạt 24 tin → kích hoạt nén
+const KEEP_AFTER_SUMMARY    = 12;               // Giữ lại 12 tin gần nhất sau khi nén
 const MAX_USERS_IN_MEMORY   = 500;
 const USER_TTL_MS           = 24 * 60 * 60 * 1000; // TTL tăng lên 24 giờ
 
-const chatHistories = new Map<number, UserHistory>();
+// Một người có thể nhắn ở nhiều group và DM; mỗi cuộc hội thoại cần bộ nhớ riêng.
+const chatHistories = new Map<string, UserHistory>();
+
+function getConversationKey(chatId: number, userId: number): string {
+    return `${chatId}:${userId}`;
+}
 
 /**
  * Dọn dẹp user không active sau TTL hoặc khi vượt giới hạn RAM (LRU)
  */
 function evictStaleUsers(): void {
     const now = Date.now();
-    for (const [userId, data] of chatHistories.entries()) {
+    for (const [conversationId, data] of chatHistories.entries()) {
         if (now - data.lastActive > USER_TTL_MS) {
-            chatHistories.delete(userId);
+            chatHistories.delete(conversationId);
         }
     }
     if (chatHistories.size > MAX_USERS_IN_MEMORY) {
@@ -418,16 +446,16 @@ function evictStaleUsers(): void {
     }
 }
 
-function getOrCreateHistory(userId: number): UserHistory {
-    if (!chatHistories.has(userId)) {
-        chatHistories.set(userId, {
+function getOrCreateHistory(conversationKey: string): UserHistory {
+    if (!chatHistories.has(conversationKey)) {
+        chatHistories.set(conversationKey, {
             messages: [],
             summary: '',
             lastActive: Date.now(),
             totalMessageCount: 0,
         });
     }
-    const history = chatHistories.get(userId)!;
+    const history = chatHistories.get(conversationKey)!;
     history.lastActive = Date.now();
     return history;
 }
@@ -449,7 +477,7 @@ async function summarizeConversation(messages: ChatEntry[]): Promise<string> {
         .join('\n');
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await withAiSlot(() => openai.chat.completions.create({
             model: MODELS[0] ?? 'openai/gpt-oss-120b',
             messages: [
                 {
@@ -463,7 +491,7 @@ async function summarizeConversation(messages: ChatEntry[]): Promise<string> {
             ],
             temperature: 0.2,
             max_tokens: 350,
-        });
+        }));
         return response.choices[0]?.message?.content?.trim() ?? '';
     } catch (err) {
         console.error('[SUMMARIZER] Lỗi khi tóm tắt:', err);
@@ -523,23 +551,45 @@ setInterval(() => {
 // 🔒 PER-USER QUEUE - Tránh race condition
 // ============================================================
 
-const processingUsers = new Set<number>();
-const messageQueues   = new Map<number, (() => Promise<void>)[]>();
+const processingUsers = new Set<string>();
+const messageQueues   = new Map<string, (() => Promise<void>)[]>();
+const MAX_QUEUED_MESSAGES_PER_CONVERSATION = 3;
+const MAX_CONCURRENT_AI_REQUESTS = 4;
+let activeAiRequests = 0;
+const aiSlotWaiters: Array<() => void> = [];
 
-async function enqueueMessage(userId: number, task: () => Promise<void>): Promise<void> {
-    if (!messageQueues.has(userId)) messageQueues.set(userId, []);
-    messageQueues.get(userId)!.push(task);
-
-    if (!processingUsers.has(userId)) {
-        processingUsers.add(userId);
-        const queue = messageQueues.get(userId)!;
-        while (queue.length > 0) {
-            const next = queue.shift();
-            if (next) await next().catch(console.error);
-        }
-        processingUsers.delete(userId);
-        messageQueues.delete(userId);
+async function withAiSlot<T>(task: () => Promise<T>): Promise<T> {
+    if (activeAiRequests >= MAX_CONCURRENT_AI_REQUESTS) {
+        await new Promise<void>(resolve => aiSlotWaiters.push(resolve));
     }
+    activeAiRequests++;
+    try {
+        return await task();
+    } finally {
+        activeAiRequests--;
+        aiSlotWaiters.shift()?.();
+    }
+}
+
+async function enqueueMessage(conversationKey: string, task: () => Promise<void>): Promise<boolean> {
+    if (!messageQueues.has(conversationKey)) messageQueues.set(conversationKey, []);
+    const queue = messageQueues.get(conversationKey)!;
+    if (queue.length >= MAX_QUEUED_MESSAGES_PER_CONVERSATION) return false;
+    queue.push(task);
+
+    if (!processingUsers.has(conversationKey)) {
+        processingUsers.add(conversationKey);
+        try {
+            while (queue.length > 0) {
+                const next = queue.shift();
+                if (next) await next().catch(console.error);
+            }
+        } finally {
+            processingUsers.delete(conversationKey);
+            messageQueues.delete(conversationKey);
+        }
+    }
+    return true;
 }
 
 // ============================================================
@@ -550,11 +600,17 @@ bot.catch((err) => console.error('[Lỗi Hệ Thống]:', err));
 
 bot.use((ctx, next) => {
     const from = ctx.from;
-    const text = (ctx.message as any)?.text || (ctx.callbackQuery as any)?.data || '';
     const chatType = ctx.chat?.type;
-    console.log(`[INCOMING] [${chatType}] From ${from?.first_name} (@${from?.username} | ID: ${from?.id}): "${text}"`);
+    console.log(`[INCOMING] [${chatType}] user=${from?.id ?? 'unknown'} chat=${ctx.chat?.id ?? 'unknown'}`);
     return next();
 });
+
+async function replyInChunks(ctx: Context, text: string): Promise<void> {
+    const MAX_TELEGRAM_MESSAGE_LENGTH = 4000;
+    for (let start = 0; start < text.length; start += MAX_TELEGRAM_MESSAGE_LENGTH) {
+        await ctx.reply(text.slice(start, start + MAX_TELEGRAM_MESSAGE_LENGTH));
+    }
+}
 
 bot.start((ctx) => {
     const isUserQuang = QUANG_USER_IDS.has(ctx.from.id);
@@ -708,7 +764,7 @@ bot.command('clear', (ctx) => {
         ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
-    chatHistories.delete(userId);
+    chatHistories.delete(getConversationKey(ctx.chat.id, userId));
     ctx.reply('Dạ em đã xóa sạch toàn bộ lịch sử trò chuyện và đặt lại bộ nhớ theo lệnh của anh Quang rồi ạ! 🧠✨');
 });
 
@@ -719,7 +775,7 @@ bot.command('memory', (ctx) => {
         ctx.reply(getRandomUnauthorizedScolding());
         return;
     }
-    const history = chatHistories.get(userId);
+    const history = chatHistories.get(getConversationKey(ctx.chat.id, userId));
     if (!history) {
         ctx.reply('Dạ hiện tại em chưa có dữ liệu bộ nhớ lưu trữ nào về cuộc trò chuyện của anh Quang ạ.');
         return;
@@ -764,7 +820,7 @@ bot.command('tuat', async (ctx) => {
         return;
     }
     try {
-        const randomGif = validGifs[Math.floor(Math.random() * validGifs.length)];
+        const randomGif = validGifs[Math.floor(Math.random() * validGifs.length)]!;
         await ctx.replyWithSticker(randomGif);
     } catch (err) {
         console.error('[/tuat] Lỗi gửi GIF:', err);
@@ -914,7 +970,8 @@ bot.on('text', async (ctx) => {
     const effectiveName = customNick ? `${customNick} (Tên thật: ${userName})` : userName;
 
     // ====== TẦNG 2: XỬ LÝ AI (QUEUE) ======
-    await enqueueMessage(userId, async () => {
+    const conversationKey = getConversationKey(ctx.chat.id, userId);
+    const accepted = await enqueueMessage(conversationKey, async () => {
         // Typing indicator chạy song song
         let typingActive = true;
         const typingLoop = async () => {
@@ -926,7 +983,7 @@ bot.on('text', async (ctx) => {
         typingLoop();
 
         try {
-            const userHistory = getOrCreateHistory(userId);
+            const userHistory = getOrCreateHistory(conversationKey);
             userHistory.totalMessageCount++;
 
             // Nén lịch sử nếu quá dài
@@ -965,7 +1022,7 @@ bot.on('text', async (ctx) => {
             for (const model of MODELS) {
                 try {
                     console.log(`[API] Thử model: ${model}...`);
-                    const response = await openai.chat.completions.create({
+                    const response = await withAiSlot(() => openai.chat.completions.create({
                         model,
                         messages,
                         temperature: 0.6,
@@ -973,7 +1030,7 @@ bot.on('text', async (ctx) => {
                         presence_penalty: 0.1,
                         frequency_penalty: 0.1,
                         max_tokens: 800,
-                    });
+                    }));
                     const rawReply = response.choices[0]?.message?.content ?? null;
                     const cleaned = sanitizeAiResponse(rawReply, isUserQuang);
                     if (cleaned) {
@@ -992,7 +1049,7 @@ bot.on('text', async (ctx) => {
             if (!aiReply) {
                 console.log('[API] Tất cả model fail, thử fallback tối giản...');
                 try {
-                    const fallbackResponse = await openai.chat.completions.create({
+                    const fallbackResponse = await withAiSlot(() => openai.chat.completions.create({
                         model: 'openai/gpt-oss-20b',
                         messages: [
                             {
@@ -1005,7 +1062,7 @@ bot.on('text', async (ctx) => {
                         ],
                         temperature: 0.7,
                         max_tokens: 500,
-                    });
+                    }));
                     const rawFb = fallbackResponse.choices[0]?.message?.content ?? null;
                     aiReply = sanitizeAiResponse(rawFb, isUserQuang);
                     if (aiReply) console.log('[API] ✅ Fallback OK');
@@ -1018,7 +1075,7 @@ bot.on('text', async (ctx) => {
             if (aiReply) {
                 // Lưu vào lịch sử
                 userHistory.messages.push({ role: 'assistant', content: aiReply });
-                await ctx.reply(aiReply);
+                await replyInChunks(ctx, aiReply);
             } else {
                 console.error('[API] Tất cả đều thất bại. Last error:', lastError);
                 await ctx.reply('Tao đang bận éo trả lời được. Thử lại sau đi.');
@@ -1031,6 +1088,10 @@ bot.on('text', async (ctx) => {
             typingActive = false;
         }
     });
+
+    if (!accepted) {
+        await ctx.reply('Tao đang xử lý mấy tin trước của mày rồi. Đợi một lát rồi nhắn lại nhé.');
+    }
 });
 
 // ============================================================
@@ -1038,7 +1099,8 @@ bot.on('text', async (ctx) => {
 // ============================================================
 
 console.log('⏳ Đang kết nối Telegram Bot...');
-bot.launch({ dropPendingUpdates: true }, () => {
+bot.launch(() => {
+    botReady = true;
     console.log('============================================');
     console.log(`🤖 @${bot.botInfo?.username || 'HaiLiLi_bot'} (Lê Minh Hải Bot v3.0) is ONLINE!`);
     console.log('📅 Sinh nhật: 13/06/2003');
@@ -1050,6 +1112,7 @@ bot.launch({ dropPendingUpdates: true }, () => {
     console.log(`🕐 TTL: 24 giờ`);
     console.log('============================================');
 }).catch((err) => {
+    botReady = false;
     console.error('[Lỗi Khởi Động Bot]:', err);
 });
 
